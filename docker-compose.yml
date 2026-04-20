@@ -1,0 +1,68 @@
+# COTO Graphiti Knowledge Graph
+# Temporal knowledge graph engine for Viktor's AI memory
+# Deployed on COTO-Apps droplet (64.23.168.243)
+
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: coto-neo4j
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+    ports:
+      - "127.0.0.1:7474:7474"   # Neo4j Browser (internal only)
+      - "127.0.0.1:7687:7687"   # Bolt protocol (internal only)
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD}
+      # Memory tuning for 4GB droplet
+      - NEO4J_server_memory_heap_initial__size=512m
+      - NEO4J_server_memory_heap_max__size=1024m
+      - NEO4J_server_memory_pagecache_size=512m
+      - NEO4J_server_jvm_additional=-XX:+UseG1GC
+      # Disable telemetry
+      - NEO4J_dbms_usage__report_enabled=false
+    deploy:
+      resources:
+        limits:
+          memory: 1792M
+
+  graphiti:
+    build:
+      context: ./graphiti-server
+      dockerfile: Dockerfile
+    container_name: coto-graphiti
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthcheck')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "127.0.0.1:8000:8000"   # Graphiti API (internal only)
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - PORT=8000
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+volumes:
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
