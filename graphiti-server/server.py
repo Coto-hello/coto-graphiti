@@ -21,7 +21,8 @@ from typing import Optional
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 
 from graphiti_core import Graphiti
@@ -34,6 +35,19 @@ logger = logging.getLogger(__name__)
 
 # Global Graphiti client
 graphiti_client: Optional[Graphiti] = None
+
+# Bearer token auth
+security = HTTPBearer()
+API_TOKEN = os.getenv("GRAPHITI_API_TOKEN", "")
+
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Security(security)):
+    """Verify bearer token for all protected endpoints."""
+    if not API_TOKEN:
+        raise HTTPException(status_code=503, detail="API token not configured")
+    if credentials.credentials != API_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid API token")
+    return credentials
 
 
 @asynccontextmanager
@@ -120,7 +134,7 @@ async def healthcheck():
 
 
 @app.post("/episodes")
-async def add_episode(req: EpisodeRequest):
+async def add_episode(req: EpisodeRequest, _=Depends(verify_token)):
     """Ingest a text episode into the knowledge graph.
     
     This extracts entities, relationships, and facts from the text,
@@ -166,7 +180,7 @@ async def add_episode(req: EpisodeRequest):
 
 
 @app.post("/search")
-async def search(req: SearchRequest):
+async def search(req: SearchRequest, _=Depends(verify_token)):
     """Search the knowledge graph using hybrid retrieval.
     
     Combines graph traversal, entity search, and embedding similarity
@@ -200,7 +214,7 @@ async def search(req: SearchRequest):
 
 
 @app.get("/stats")
-async def get_stats():
+async def get_stats(_=Depends(verify_token)):
     """Get knowledge graph statistics."""
     if graphiti_client is None:
         raise HTTPException(status_code=503, detail="Graphiti not ready")
